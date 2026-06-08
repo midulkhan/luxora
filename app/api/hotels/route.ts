@@ -4,10 +4,21 @@ function priceToNumber(price: string) {
   return Number(price?.replace(/[^0-9.]/g, "") || 0);
 }
 
+function queryToArray(value: string | null) {
+  return (
+    value
+      ?.split(",")
+      .map((item) => item.toLowerCase().trim())
+      .filter(Boolean) || []
+  );
+}
+
 export async function GET(request: NextRequest) {
   const SearchParams = request.nextUrl.searchParams;
 
-  const location = SearchParams.get("location")?.toLowerCase() || "";
+  const locations = queryToArray(SearchParams.get("location"));
+  const ratings = queryToArray(SearchParams.get("rating")).map(Number);
+
   const MinPrice = SearchParams.get("minprice");
   const MaxPrice = SearchParams.get("maxprice");
 
@@ -41,6 +52,12 @@ export async function GET(request: NextRequest) {
                 regularPrice
                 salePrice
                 stockStatus
+                reviews {
+                  averageRating
+                  nodes {
+                    content
+                  }
+                }
               }
             }
           }
@@ -52,7 +69,7 @@ export async function GET(request: NextRequest) {
   if (!res.ok) {
     return NextResponse.json(
       { message: "Failed to fetch hotels" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -65,21 +82,35 @@ export async function GET(request: NextRequest) {
   const filteredHotels = hotels.filter((hotel: any) => {
     const hotelPrice = priceToNumber(hotel.price);
 
-    const matchLocation = location
-      ? hotel.places?.nodes?.some((place: any) =>
-          place.name.toLowerCase().includes(location)
-        )
-      : true;
+    const hotelRating = Number(hotel.reviews?.averageRating || 0);
+
+    const matchLocation =
+      locations.length > 0
+        ? hotel.places?.nodes?.some((place: any) =>
+            locations.includes(place.name.toLowerCase()),
+          )
+        : true;
+
+    const matchRating =
+      ratings.length > 0
+        ? ratings.some((rating) => Math.floor(hotelRating) === rating)
+        : true;
 
     const matchPrice = hotelPrice >= minPrice && hotelPrice <= maxPrice;
 
-    return matchLocation && matchPrice;
+    return matchLocation && matchRating && matchPrice;
   });
 
   const hasQuery =
     SearchParams.has("location") ||
+    SearchParams.has("rating") ||
     SearchParams.has("minprice") ||
     SearchParams.has("maxprice");
 
-  return NextResponse.json(hasQuery ? filteredHotels : hotels, { status: 200 });
+  const result = hasQuery ? filteredHotels : hotels;
+
+  return NextResponse.json({ result, total: result.length }, { status: 200 });
 }
+
+
+
